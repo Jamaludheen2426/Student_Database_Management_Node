@@ -8,7 +8,7 @@ const cors = require('cors');
 
 app.use(express.json());
 const corsOptions = {
-  origin: ['http://localhost:3000', 'http://localhost:5001'],
+  origin: ['http://localhost:3000', 'http://localhost:5001','https://student-database-management-node.vercel.app','https://student-database-management-next-js.vercel.app'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization']
