@@ -8,7 +8,7 @@ const cors = require('cors');
 
 app.use(express.json());
 const corsOptions = {
-  origin: ['http://localhost:3000', 'http://localhost:5001','https://student-database-management-node.vercel.app','https://student-database-management-next-js.vercel.app'],
+  origin: ['http://localhost:3000', 'http://localhost:5001','https://student-database-management-node.vercel.app','https://student-database-management-next-js.vercel.app','https://student-database-management-node-ng.vercel.app'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -16,17 +16,15 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use('/students', studentRoutes);
 
-if (process.env.NODE_ENV !== 'production') {
-  const port = process.env.PORT || 5000;
-  db.connect()
-    .then(() => {
-      app.listen(port, () => {
-        console.log(`Server running on port ${port}`);
-      });
-    })
-    .catch(err => {
-      console.error('Failed to connect to DB:', err);
+// Start server for both development and production
+db.connect()
+  .then(() => {
+    app.listen(port, () => {
+      console.log(`Server running on port ${port}`);
     });
-}
+  })
+  .catch(err => {
+    console.error('Failed to connect to DB:', err);
+  });
 
 module.exports = app;
