@@ -39,11 +39,51 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 
-// Health check endpoint
+// Initialize database connection (will be lazy-loaded on first request)
+let dbConnected = false;
+
+async function ensureDbConnection() {
+  if (!dbConnected) {
+    try {
+      await db.connect();
+      dbConnected = true;
+      console.log('Database connected successfully');
+    } catch (err) {
+      console.error('Failed to connect to DB:', err);
+      throw err;
+    }
+  }
+}
+
+// Middleware to ensure database connection before handling database routes
+const dbMiddleware = async (req, res, next) => {
+  try {
+    await ensureDbConnection();
+    next();
+  } catch (err) {
+    console.error('Database connection error:', err);
+    res.status(500).json({ 
+      error: 'Database connection failed', 
+      message: process.env.NODE_ENV === 'development' ? err.message : 'Internal Server Error'
+    });
+  }
+};
+
+// Health check endpoint (no database dependency)
 app.get('/', (req, res) => {
   res.status(200).json({ 
     message: 'Student Database Management API is running', 
     status: 'healthy',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development',
+    port: port
+  });
+});
+
+// Database test endpoint
+app.get('/test-db', dbMiddleware, (req, res) => {
+  res.status(200).json({ 
+    message: 'Database connection successful',
     timestamp: new Date().toISOString()
   });
 });
@@ -57,12 +97,13 @@ app.get('/student', (req, res) => {
       addStudent: 'POST /students',
       updateStudent: 'PUT /students/:id',
       deleteStudent: 'DELETE /students/:id',
-      deleteAllStudents: 'DELETE /students'
+      deleteAllStudents: 'DELETE /students',
+      testDatabase: 'GET /test-db'
     }
   });
 });
 
-app.use('/students', studentRoutes);
+app.use('/students', dbMiddleware, studentRoutes);
 
 // Global error handling middleware
 app.use((err, req, res, next) => {
@@ -81,15 +122,12 @@ app.use('*', (req, res) => {
   });
 });
 
-// Start server for both development and production
-db.connect()
-  .then(() => {
-    app.listen(port, () => {
-      console.log(`Server running on port ${port}`);
-    });
-  })
-  .catch(err => {
-    console.error('Failed to connect to DB:', err);
+
+// Start server only in development
+if (process.env.NODE_ENV !== 'production') {
+  app.listen(port, () => {
+    console.log(`Server running on port ${port}`);
   });
+}
 
 module.exports = app;
