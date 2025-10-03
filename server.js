@@ -39,34 +39,21 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 
-// Initialize database connection (will be lazy-loaded on first request)
-let dbConnected = false;
-
-async function ensureDbConnection() {
-  if (!dbConnected) {
-    try {
-      await db.connect();
-      dbConnected = true;
+// Simple database connection check
+const dbMiddleware = (req, res, next) => {
+  console.log('Checking database connection...');
+  db.connect()
+    .then(() => {
       console.log('Database connected successfully');
-    } catch (err) {
-      console.error('Failed to connect to DB:', err);
-      throw err;
-    }
-  }
-}
-
-// Middleware to ensure database connection before handling database routes
-const dbMiddleware = async (req, res, next) => {
-  try {
-    await ensureDbConnection();
-    next();
-  } catch (err) {
-    console.error('Database connection error:', err);
-    res.status(500).json({ 
-      error: 'Database connection failed', 
-      message: process.env.NODE_ENV === 'development' ? err.message : 'Internal Server Error'
+      next();
+    })
+    .catch(err => {
+      console.error('Database connection error:', err);
+      res.status(500).json({ 
+        error: 'Database connection failed', 
+        message: err.message
+      });
     });
-  }
 };
 
 // Health check endpoint (no database dependency)
@@ -123,11 +110,12 @@ app.use('*', (req, res) => {
 });
 
 
-// Start server only in development
-if (process.env.NODE_ENV !== 'production') {
+// For local development
+if (require.main === module) {
   app.listen(port, () => {
     console.log(`Server running on port ${port}`);
   });
 }
 
+// Export for Vercel serverless
 module.exports = app;
