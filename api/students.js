@@ -1,30 +1,21 @@
 const mysql2 = require('mysql2/promise');
 
-// Database connection helper
-async function getConnection() {
-  return await mysql2.createConnection({
-    host: process.env.DB_HOST,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASS,
-    database: process.env.DB_NAME,
-    port: parseInt(process.env.DB_PORT || '3306'),
+// Helper to parse request body
+const parseBody = (req) => {
+  return new Promise((resolve) => {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk.toString();
+    });
+    req.on('end', () => {
+      try {
+        resolve(body ? JSON.parse(body) : {});
+      } catch {
+        resolve({});
+      }
+    });
   });
-}
-
-// Ensure students table exists
-async function ensureTableExists(connection) {
-  const createTableQuery = `
-    CREATE TABLE IF NOT EXISTS students (
-      Id INT AUTO_INCREMENT PRIMARY KEY,
-      Name VARCHAR(255) NOT NULL,
-      Mark INT NOT NULL,
-      Active VARCHAR(1) DEFAULT 'T',
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    )
-  `;
-  await connection.execute(createTableQuery);
-}
+};
 
 // Helper function to parse request body
 const parseBody = (req) => {
@@ -44,34 +35,55 @@ const parseBody = (req) => {
 };
 
 module.exports = async (req, res) => {
-  // Set CORS headers
+  // Set comprehensive CORS headers for frontend
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Max-Age', '3600');
   
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
-  // Parse request body for POST/PUT requests
-  if (req.method === 'POST' || req.method === 'PUT') {
-    req.body = await parseBody(req);
-  }
-
   let connection;
   try {
-    // Get database connection
-    connection = await getConnection();
-    await ensureTableExists(connection);
+    // Get database connection with timeout
+    connection = await mysql2.createConnection({
+      host: process.env.DB_HOST,
+      user: process.env.DB_USER,
+      password: process.env.DB_PASS,
+      database: process.env.DB_NAME,
+      port: parseInt(process.env.DB_PORT || '3306'),
+      connectTimeout: 10000,
+      acquireTimeout: 10000,
+    });
+
+    // Ensure students table exists
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS students (
+        Id INT AUTO_INCREMENT PRIMARY KEY,
+        Name VARCHAR(255) NOT NULL,
+        Mark INT NOT NULL,
+        Active VARCHAR(1) DEFAULT 'T',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
 
     const { method } = req;
     const { id } = req.query;
+
+    // Parse body for POST/PUT
+    if (method === 'POST' || method === 'PUT') {
+      req.body = await parseBody(req);
+    }
 
     switch (method) {
       case 'GET':
         if (id) {
           const [rows] = await connection.execute(
-            'SELECT * FROM students WHERE Id = ?',
+            'SELECT Id, Name, Mark, Active FROM students WHERE Id = ?',
             [id]
           );
           if (rows.length === 0) {
@@ -79,7 +91,7 @@ module.exports = async (req, res) => {
           }
           return res.status(200).json(rows[0]);
         } else {
-          const [rows] = await connection.execute('SELECT * FROM students ORDER BY Id');
+          const [rows] = await connection.execute('SELECT Id, Name, Mark, Active FROM students ORDER BY Id LIMIT 100');
           return res.status(200).json(rows);
         }
 
@@ -92,11 +104,16 @@ module.exports = async (req, res) => {
           'INSERT INTO students (Name, Mark, Active) VALUES (?, ?, ?)',
           [Name, parseInt(Mark), Active || 'T']
         );
-        const [newStudent] = await connection.execute(
-          'SELECT * FROM students WHERE Id = ?',
-          [result.insertId]
-        );
-        return res.status(201).json(newStudent[0]);
+        
+        // Return the created student in the format frontend expects
+        const newStudent = {
+          Id: result.insertId,
+          Name: Name,
+          Mark: parseInt(Mark),
+          Active: Active || 'T'
+        };
+        
+        return res.status(201).json(newStudent);
 
       case 'PUT':
         if (!id) {
@@ -133,14 +150,13 @@ module.exports = async (req, res) => {
           return res.status(404).json({ error: 'Student not found' });
         }
         
+        // Return updated student data
         const [updatedStudent] = await connection.execute(
-          'SELECT * FROM students WHERE Id = ?',
+          'SELECT Id, Name, Mark, Active FROM students WHERE Id = ?',
           [id]
         );
-        return res.status(200).json({
-          message: 'Student updated successfully',
-          student: updatedStudent[0]
-        });
+        
+        return res.status(200).json(updatedStudent[0]);
 
       case 'DELETE':
         if (id) {
@@ -151,7 +167,7 @@ module.exports = async (req, res) => {
           if (deleteResult.affectedRows === 0) {
             return res.status(404).json({ error: 'Student not found' });
           }
-          return res.status(200).json({ message: 'Student deleted successfully' });
+          return res.status(200).json({ message: 'Student deleted successfully', id: parseInt(id) });
         } else {
           await connection.execute('DELETE FROM students');
           return res.status(200).json({ message: 'All students deleted successfully' });
