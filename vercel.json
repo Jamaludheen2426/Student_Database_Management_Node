@@ -8,7 +8,15 @@
   "rewrites": [
     {
       "source": "/",
-      "destination": "/public/index.html"
+      "destination": "/index.html"
+    },
+    {
+      "source": "/students",
+      "destination": "/api/students-final"
+    },
+    {
+      "source": "/students/(.*)",
+      "destination": "/api/students-final"
     }
   ],
   "build": {
