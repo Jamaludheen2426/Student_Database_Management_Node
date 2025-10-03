@@ -16,12 +16,17 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use('/students', studentRoutes);
 
-db.connect()
-  .then(() => {
+if (process.env.NODE_ENV !== 'production') {
+  const port = process.env.PORT || 5000;
+  db.connect()
+    .then(() => {
       app.listen(port, () => {
-          console.log(`Server running on port ${port}`);
+        console.log(`Server running on port ${port}`);
       });
-  })
-  .catch(err => {
+    })
+    .catch(err => {
       console.error('Failed to connect to DB:', err);
-  });
+    });
+}
+
+module.exports = app;
