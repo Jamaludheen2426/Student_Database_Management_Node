@@ -1,41 +1,30 @@
-const { Sequelize } = require('sequelize');
+const mysql2 = require('mysql2/promise');
 
-// Database configuration
-const sequelize = new Sequelize(
-  process.env.DB_NAME,
-  process.env.DB_USER,
-  process.env.DB_PASS,
-  {
+// Database connection helper
+async function getConnection() {
+  return await mysql2.createConnection({
     host: process.env.DB_HOST,
-    port: process.env.DB_PORT,
-    dialect: process.env.DB_DIALECT,
-    logging: false
-  }
-);
+    user: process.env.DB_USER,
+    password: process.env.DB_PASS,
+    database: process.env.DB_NAME,
+    port: parseInt(process.env.DB_PORT || '3306'),
+  });
+}
 
-// Student model
-const Student = sequelize.define('Student', {
-  Id: {
-    type: Sequelize.INTEGER,
-    primaryKey: true,
-    autoIncrement: true
-  },
-  Name: {
-    type: Sequelize.STRING,
-    allowNull: false
-  },
-  Mark: {
-    type: Sequelize.INTEGER,
-    allowNull: false
-  },
-  Active: {
-    type: Sequelize.STRING,
-    defaultValue: 'T'
-  }
-}, {
-  tableName: 'students',
-  timestamps: false
-});
+// Ensure students table exists
+async function ensureTableExists(connection) {
+  const createTableQuery = `
+    CREATE TABLE IF NOT EXISTS students (
+      Id INT AUTO_INCREMENT PRIMARY KEY,
+      Name VARCHAR(255) NOT NULL,
+      Mark INT NOT NULL,
+      Active VARCHAR(1) DEFAULT 'T',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `;
+  await connection.execute(createTableQuery);
+}
 
 // Helper function to parse request body
 const parseBody = (req) => {
@@ -69,10 +58,11 @@ module.exports = async (req, res) => {
     req.body = await parseBody(req);
   }
 
+  let connection;
   try {
-    // Ensure database connection
-    await sequelize.authenticate();
-    await sequelize.sync();
+    // Get database connection
+    connection = await getConnection();
+    await ensureTableExists(connection);
 
     const { method } = req;
     const { id } = req.query;
@@ -80,48 +70,90 @@ module.exports = async (req, res) => {
     switch (method) {
       case 'GET':
         if (id) {
-          const student = await Student.findByPk(id);
-          if (!student) {
+          const [rows] = await connection.execute(
+            'SELECT * FROM students WHERE Id = ?',
+            [id]
+          );
+          if (rows.length === 0) {
             return res.status(404).json({ error: 'Student not found' });
           }
-          return res.status(200).json(student);
+          return res.status(200).json(rows[0]);
         } else {
-          const students = await Student.findAll();
-          return res.status(200).json(students);
+          const [rows] = await connection.execute('SELECT * FROM students ORDER BY Id');
+          return res.status(200).json(rows);
         }
 
       case 'POST':
         const { Name, Mark, Active } = req.body;
-        if (!Name || !Mark) {
+        if (!Name || Mark === undefined) {
           return res.status(400).json({ error: 'Name and Mark are required' });
         }
-        const newStudent = await Student.create({ Name, Mark, Active: Active || 'T' });
-        return res.status(201).json(newStudent);
+        const [result] = await connection.execute(
+          'INSERT INTO students (Name, Mark, Active) VALUES (?, ?, ?)',
+          [Name, parseInt(Mark), Active || 'T']
+        );
+        const [newStudent] = await connection.execute(
+          'SELECT * FROM students WHERE Id = ?',
+          [result.insertId]
+        );
+        return res.status(201).json(newStudent[0]);
 
       case 'PUT':
         if (!id) {
           return res.status(400).json({ error: 'Student ID is required' });
         }
         const updateData = req.body;
-        const [updatedRows] = await Student.update(updateData, {
-          where: { Id: id }
-        });
-        if (updatedRows === 0) {
+        const updateFields = [];
+        const updateValues = [];
+        
+        if (updateData.Name) {
+          updateFields.push('Name = ?');
+          updateValues.push(updateData.Name);
+        }
+        if (updateData.Mark !== undefined) {
+          updateFields.push('Mark = ?');
+          updateValues.push(parseInt(updateData.Mark));
+        }
+        if (updateData.Active) {
+          updateFields.push('Active = ?');
+          updateValues.push(updateData.Active);
+        }
+        
+        if (updateFields.length === 0) {
+          return res.status(400).json({ error: 'No fields to update' });
+        }
+        
+        updateValues.push(id);
+        const [updateResult] = await connection.execute(
+          `UPDATE students SET ${updateFields.join(', ')} WHERE Id = ?`,
+          updateValues
+        );
+        
+        if (updateResult.affectedRows === 0) {
           return res.status(404).json({ error: 'Student not found' });
         }
-        return res.status(200).json({ message: 'Student updated successfully' });
+        
+        const [updatedStudent] = await connection.execute(
+          'SELECT * FROM students WHERE Id = ?',
+          [id]
+        );
+        return res.status(200).json({
+          message: 'Student updated successfully',
+          student: updatedStudent[0]
+        });
 
       case 'DELETE':
         if (id) {
-          const deletedRows = await Student.destroy({
-            where: { Id: id }
-          });
-          if (deletedRows === 0) {
+          const [deleteResult] = await connection.execute(
+            'DELETE FROM students WHERE Id = ?',
+            [id]
+          );
+          if (deleteResult.affectedRows === 0) {
             return res.status(404).json({ error: 'Student not found' });
           }
           return res.status(200).json({ message: 'Student deleted successfully' });
         } else {
-          await Student.destroy({ where: {}, truncate: true });
+          await connection.execute('DELETE FROM students');
           return res.status(200).json({ message: 'All students deleted successfully' });
         }
 
@@ -134,5 +166,9 @@ module.exports = async (req, res) => {
       error: 'Internal Server Error',
       message: error.message
     });
+  } finally {
+    if (connection) {
+      await connection.end();
+    }
   }
 };
