@@ -38,7 +38,8 @@ class Database
         catch(e)
         {
             console.log("Some Issue in Connection",{e});
-           throw new Error('Database connection error: ' + e.message);        }
+            throw new Error('Database connection error: ' + e.message);
+        }
     }
 
     getInstance()

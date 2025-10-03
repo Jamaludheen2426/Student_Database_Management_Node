@@ -89,7 +89,7 @@ class StudentService
             const result = await Student.destroy(
                { where: {Id : Id},}
             )
-            if ( result[0] === 0 )
+            if ( result === 0 )
                 {
                     return {success : false, message:'no student present this id'}
                 }

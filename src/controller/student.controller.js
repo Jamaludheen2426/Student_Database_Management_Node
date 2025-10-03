@@ -52,13 +52,13 @@ class StudentController
         try
         {
         console.log("Calling that Delete All Student Api");
-        const result = StudentService.dltAllStudent();
+        const result = await StudentService.dltAllStudent();
         return res.status(200).json(result);
         }
         catch(error)
         {
             console.log("something issue in dltall student controller",{error});
-            throw error;
+            return res.status(500).json({ error: 'Internal Server Error', message: error.message });
         }
     }
 
@@ -82,8 +82,8 @@ class StudentController
         }
         catch(error)
         {
-            console.log("something issue on updatestudent controller");
-            throw error;
+            console.log("something issue on updatestudent controller", {error});
+            return res.status(500).json({ error: 'Internal Server Error', message: error.message });
         }
     }
 
@@ -108,7 +108,7 @@ class StudentController
         catch(error)
         {
             console.log("something happen in dlt student by id in student controller",{error});
-            throw error;
+            return res.status(500).json({ error: 'Internal Server Error', message: error.message });
         }
     }
 }
